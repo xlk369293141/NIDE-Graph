@@ -70,7 +70,7 @@ class TANGOtrainDataset(torch.utils.data.Dataset):
 
         # sub
         subject_tar = [torch.stack([_trp[i, :] for i in range(_trp.shape[0])], dim=0)[:, 0] for _trp in triple_tar]
-
+        
         # rel
         relation_tar = [torch.stack([_trp[i, :] for i in range(_trp.shape[0])], dim=0)[:, 1] for _trp in triple_tar]
 
@@ -129,10 +129,21 @@ class TANGOtrainDataset(torch.utils.data.Dataset):
                     jumped = torch.nonzero(a._values()).squeeze(1)
                     edge_id_jump.append(a._indices()[:, jumped])
                     edge_w_jump.append(a._values()[jumped].unsqueeze(-1))
-
+        
+        edge_id_his, edge_w_his, rel_his = [], [], []
+        if self.p.his:
+            adj_mtx_his = torch.zeros_like(self.adjlist[0])
+            for i_idx in range(0, idx):
+                adj_mtx_his += self.adjlist[i_idx]
+            
+            edge_id_his= torch.cat([adj_mtx_his._indices()[0].unsqueeze(-1), adj_mtx_his._indices()[2].unsqueeze(-1)],dim=1).t()
+            edge_w_his= adj_mtx_his._values().unsqueeze(-1)
+            rel_his= adj_mtx_his._indices()[1]                
+        
         return (subject_input, relation_input, object_input, label_input, subject_tar, relation_tar, object_tar,
                 label_tar, target_time_stamps, input_time_stamps, edge_index_list, edge_type_list, adj_mtx_list,
-                edge_w_jump, edge_id_jump, rel_jump)
+                edge_w_jump, edge_id_jump, rel_jump, edge_id_his, edge_w_his, rel_his)
+        
 
     def __len__(self):
         return self.len
@@ -305,9 +316,18 @@ class TANGOtestDataset(torch.utils.data.Dataset):
                     edge_id_jump.append(a._indices()[:, jumped])
                     edge_w_jump.append(a._values()[jumped].unsqueeze(-1))
 
+        edge_id_his, edge_w_his, rel_his = [], [], []
+        if self.p.his:
+            adj_mtx_his = torch.zeros_like(self.adjlist[0])
+            for i_idx in range(0, idx):
+                adj_mtx_his += self.adjlist[i_idx]
+            
+            edge_id_his= torch.cat([adj_mtx_his._indices()[0].unsqueeze(-1), adj_mtx_his._indices()[2].unsqueeze(-1)],dim=1).t()
+            edge_w_his= adj_mtx_his._values().unsqueeze(-1)
+            rel_his= adj_mtx_his._indices()[1]    
         return (subject_input, relation_input, object_input, label_input, subject_tar, relation_tar, object_tar,
                 label_tar, target_time_stamps, input_time_stamps, edge_index_list, edge_type_list, indep_lab,
-                adj_mtx_list, edge_w_jump, edge_id_jump, rel_jump)
+                adj_mtx_list, edge_w_jump, edge_id_jump, rel_jump, edge_id_his, edge_w_his, rel_his)
 
     def __len__(self):
         return self.len
@@ -341,9 +361,12 @@ class TANGOtrainDataLoader(torch.utils.data.DataLoader):
             edg_jump_w = item[13]
             edg_jump_id = item[14]
             rel_jump = item[15]
+            edge_id_his = item[16]
+            edge_w_his = item[17] 
+            rel_his = item[18]
 
         return (sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, tar_ts, in_ts, edg_id, edg_typ,
-                adj_mtx, edg_jump_w, edg_jump_id, rel_jump)
+                adj_mtx, edg_jump_w, edg_jump_id, rel_jump, edge_id_his, edge_w_his, rel_his)
 
 
 class TANGOtestDataLoader(torch.utils.data.DataLoader):
@@ -371,6 +394,9 @@ class TANGOtestDataLoader(torch.utils.data.DataLoader):
             edg_jump_w = item[14]
             edg_jump_id = item[15]
             rel_jump = item[16]
+            edge_id_his = [17]
+            edge_w_his = [18]
+            rel_his = [19]
 
         return (sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, tar_ts, in_ts, edg_id, edg_typ,
-                indep_lab, adj_mtx, edg_jump_w, edg_jump_id, rel_jump)
+                indep_lab, adj_mtx, edg_jump_w, edg_jump_id, rel_jump, edge_id_his, edge_w_his, rel_his)

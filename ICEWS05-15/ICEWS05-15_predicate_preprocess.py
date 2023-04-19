@@ -194,7 +194,7 @@ with open('timestamp_tKG.pkl', 'wb') as fp:
 with open('neighbor_tKG.pkl', 'wb') as fp:
     pickle.dump(nei, fp)
 
-with open('adjlist_tKG.pkl', 'wb') as fp:
+with open('adjlist_tKG.pkl', 'wb') as fp:    #读显存
     pickle.dump(adjlist, fp)
     
 with open('so2r_all_tKG.pkl', 'wb') as fp:

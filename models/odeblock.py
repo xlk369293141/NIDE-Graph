@@ -16,34 +16,34 @@ class ODEBlock(nn.Module):
 
     def forward(self, x:torch.Tensor, start, stop):
         self.integration_time = torch.tensor([start, stop]).float()
-        self.integration_time = self.integration_time.type_as(x)
+        self.integration_time = self.integration_time.type_as(x[0])
 
         if self.adjoint_flag:
-            out = torchdiffeq.odeint_adjoint(self.odefunc, x, self.integration_time,
+            out, dout = torchdiffeq.odeint_adjoint(self.odefunc, x, self.integration_time,
                                              rtol=self.rtol, atol=self.atol, method=self.method)
         else:
-            out = torchdiffeq.odeint(self.odefunc, x, self.integration_time,
+            out, dout = torchdiffeq.odeint(self.odefunc, x, self.integration_time,
                                      rtol=self.rtol, atol=self.atol, method=self.method)
             
-        return out[-1]
+        return out[-1], dout[-1]
 
     def forward_nobatch(self, x: torch.Tensor, start: float, end: float, cheby_grid: int=0):
         self.integration_time = torch.tensor([start, end]).float()
-        self.integration_time = self.integration_time.type_as(x)
+        self.integration_time = self.integration_time.type_as(x[0])
 
         if self.adjoint_flag:
-            out = torchdiffeq.odeint_adjoint(self.odefunc, x, self.integration_time,
+            out, dout = torchdiffeq.odeint_adjoint(self.odefunc, x, self.integration_time,
                                              rtol=self.rtol, atol=self.atol, method=self.method, cheby_grid=cheby_grid)
         else:
-            out = torchdiffeq.odeint(self.odefunc, x, self.integration_time,
+            out, dout = torchdiffeq.odeint(self.odefunc, x, self.integration_time,
                                      rtol=self.rtol, atol=self.atol, method=self.method)
 
-        return out[-1]
+        return out[-1], dout[-1]
 
     def trajectory(self, x:torch.Tensor, T:int, num_points:int):
         self.integration_time = torch.linspace(0, t_end, num_points)
-        self.integration_time = self.integration_time.type_as(x)
-        out = torchdiffeq.odeint(self.odefunc, x, self.integration_time,
+        self.integration_time = self.integration_time.type_as(x[0])
+        (out, dout) = torchdiffeq.odeint(self.odefunc, x, self.integration_time,
                                  rtol=self.rtol, atol=self.atol, method=self.method)
-        return out
+        return out, dout
 

@@ -32,12 +32,12 @@ def predict(loader, model, params, num_e, test_adjmtx, logger):
 
         for step, (
         sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, tar_ts, in_ts, edge_idlist, edge_typelist,
-        indep_lab, adj_mtx, edge_jump_w, edge_jump_id, rel_jump) in enumerate(iter):
+        indep_lab, adj_mtx, edge_jump_w, edge_jump_id, rel_jump, edge_id_his, edge_w_his, rel_his) in enumerate(iter):
             if len(sub_tar) == 0:
                 continue
 
             # forward
-            emb = model.forward_eval(in_ts, tar_ts, edge_idlist, edge_typelist, edge_jump_id, edge_jump_w, rel_jump)
+            emb = model.forward_eval(in_ts, tar_ts, edge_idlist, edge_typelist, edge_jump_id, edge_jump_w, rel_jump, edge_id_his, edge_w_his, rel_his)
 
             rank_count = 0
             while rank_count < sub_tar[0].shape[0]:

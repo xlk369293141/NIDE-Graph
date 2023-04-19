@@ -73,13 +73,15 @@ if __name__ == '__main__':
     parser.add_argument('--cheby_grid', type=int, default=3, help='number of chebyshev nodes, without chebyshev approximation if cheby_grid=0')
     parser.add_argument('--resume', action='store_true', help='retore a model')
     parser.add_argument('--name', type=str, default='TANGO', help='name of the run')
-    parser.add_argument('--jump', action='store_true', help='whether to use graph transition layer')
+    parser.add_argument('--his', action='store_false', help='whether to use history embedding')
+    parser.add_argument('--jump', action='store_false', help='whether to use graph transition layer')
     parser.add_argument('--jump_init', type=float, default=0.01, help='weight of transition term')
     parser.add_argument('--activation', type=str, default='relu', help='activation function')
-    parser.add_argument('--res', action='store_true', help='include residual MGCN layer')
-    parser.add_argument('--rel_jump', action='store_true', help='include transition tensor')
+    parser.add_argument('--res', action='store_false', help='include residual MGCN layer')
+    parser.add_argument('--rel_jump', action='store_false', help='include transition tensor')
     parser.add_argument('--induct_test', action='store_true', help='inductive link prediction')
     parser.add_argument('--test', action='store_true', help='store to start the test, otherwise start training')
+    
 
     args = parser.parse_args()
     if not args.resume: args.name = args.name + '_' + time.strftime('%Y_%m_%d') + '_' + time.strftime('%H:%M:%S')
@@ -238,18 +240,19 @@ if __name__ == '__main__':
             t1 = time.time()
 
             for step, (sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, tar_ts, in_ts, edge_idlist, \
-                edge_typelist, adj_mtx, edge_jump_w, edge_jump_id, rel_jump) in enumerate(train_loader):
+                edge_typelist, adj_mtx, edge_jump_w, edge_jump_id, rel_jump, edge_id_his, edge_w_his, rel_his) in enumerate(train_loader):
                 optim.zero_grad()
                 model.train()
-                
+
                 # forward
                 t3 = time.time()
-                loss = model(sub_tar, rel_tar, obj_tar, lab_tar, in_ts, tar_ts, edge_idlist, edge_typelist, edge_jump_id, edge_jump_w, rel_jump)
+                loss = model(sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, in_ts, tar_ts, edge_idlist, edge_typelist, edge_jump_id, edge_jump_w, rel_jump, edge_id_his, edge_w_his, rel_his)
                 t4 = time.time()
                 ftime += (t4 - t3)
 
                 # backward
                 loss.backward()
+                # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optim.step()
                 t5 = time.time()
                 btime += (t5 - t4)
@@ -337,6 +340,31 @@ if __name__ == '__main__':
                 logger.info("========BEST MRR=========")
                 logger.info("Epoch {}, MRR {}".format(epoch + 1, best_val_mrr))
 
+        print("Start testing...")
+        logger.info("Start testing...")
+        epoch = 0
+        results = predict(test_loader, model, args, num_e, test_adjmtx, logger)
+
+        print("===========RAW===========")
+        print("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_raw']))
+        print("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_raw']))
+        print("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1_raw']))
+        print("Epoch {}, MRR {}".format(epoch + 1, results['mrr_raw']))
+        print("Epoch {}, MAR {}".format(epoch + 1, results['mar_raw']))
+
+        print("=====TIME AWARE FILTER=====")
+        print("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10']))
+        print("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3']))
+        print("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1']))
+        print("Epoch {}, MRR {}".format(epoch + 1, results['mrr']))
+        print("Epoch {}, MAR {}".format(epoch + 1, results['mar']))
+
+        print("====TIME UNAWARE FILTER====")
+        print("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_ind']))
+        print("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_ind']))
+        print("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1_ind']))
+        print("Epoch {}, MRR {}".format(epoch + 1, results['mrr_ind']))
+        print("Epoch {}, MAR {}".format(epoch + 1, results['mar_ind']))
     else:
         if args.induct_test: # inductive link prediction, run if you have a trained model
             print("Start inductive testing...")

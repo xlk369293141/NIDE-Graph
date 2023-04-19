@@ -104,7 +104,7 @@ class MGCNConvLayer(MessagePassing):
 		return out if edge_norm is None else out * edge_norm.view(-1, 1)
 
 	def rel_transform(self, ent_embed, rel_embed):
-		if   self.p.opn == 'corr': 	trans_embed  = ccorr(ent_embed, rel_embed)
+		if   self.p.opn == 'corr': 	trans_embed  = corr(ent_embed, rel_embed)
 		elif self.p.opn == 'sub': 	trans_embed  = ent_embed - rel_embed
 		elif self.p.opn == 'mult': 	trans_embed  = ent_embed * rel_embed
 		else: raise NotImplementedError

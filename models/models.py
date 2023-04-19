@@ -9,6 +9,52 @@ from .odeblock import ODEBlock
 from .MGCN import *
 from .MGCNLayer import *
 
+def mlp(input_dim, hidden_dim, output_dim, hidden_depth, output_mod=None, act=nn.ReLU):
+    if hidden_depth == 0:
+        mods = [nn.Linear(input_dim, output_dim)]
+    else:
+        mods = [nn.Linear(input_dim, hidden_dim), act()]
+        for i in range(hidden_depth - 1):
+            mods += [nn.Linear(hidden_dim, hidden_dim), act()]
+        mods.append(nn.Linear(hidden_dim, output_dim))
+    if output_mod is not None:
+        mods.append(output_mod)
+    trunk = nn.Sequential(*mods)
+    for i in range(hidden_depth+1):
+        nn.init.xavier_uniform_(trunk[2*i].weight, gain=nn.init.calculate_gain('relu'))
+        nn.init.zeros_(trunk[2*i].bias)
+    return trunk
+
+class StateHistory(nn.Module):
+    def __init__(self, params, num_e, act):
+        super().__init__()
+        self.p = params
+        self.num_e = num_e
+        self.act = act
+        self.net = MGCNConvLayer(self.p.hidsize, self.p.hidsize, act=self.act, params=self.p)
+        if self.p.res:
+            self.res = torch.nn.Parameter(torch.FloatTensor([0.1]))
+        self.drop = torch.nn.Dropout(self.p.dropout)
+        
+    def set_history(self, edge_id_his, edge_w_his, rel_his=None):
+        self.edge_id_his = edge_id_his
+        self.edge_w_his = edge_w_his
+        self.rel_his = rel_his
+  
+    def forward(self, state):
+        emb, change = state
+        if self.p.res:
+            # res_weight = torch.sigmoid(torch.mm(vel, self.res_weight) + self.res_bias)
+            # jump_res = self.net.forward(vel, self.edge_id_jump, self.rel_jump, self.num_e,
+			# 										dN=self.edge_w_jump)
+            # vel = (1 - res_weight) * vel + res_weight * jump_res
+            emb = emb + self.res * self.net(emb, self.edge_id_his, self.rel_his, self.num_e,
+			 										dN=self.edge_w_his)
+        else:
+            emb = emb + self.res * self.net(emb, self.edge_id_his, self.rel_his, self.num_e,
+													dN=self.edge_w_his)
+        return (emb, change)
+    
 class TANGO(nn.Module):
     def __init__(self, num_e, num_rel, params, device, logger):
         super().__init__()
@@ -28,7 +74,8 @@ class TANGO(nn.Module):
         self.drop = self.p.dropout
         self.hidsize = self.p.hidsize
         self.embsize = self.p.embsize
-
+        self.his = self.p.his
+        
         self.device = device
         self.logger = logger
         if self.p.activation.lower() == 'tanh':
@@ -42,7 +89,7 @@ class TANGO(nn.Module):
         self.loss = torch.nn.CrossEntropyLoss()
 
         # define entity and relation embeddings
-        self.emb_e = self.get_param((self.num_e, self.initsize))
+        self.emb_e = self.get_param((self.num_e, self.initsize))    #20G
         self.emb_r = self.get_param((self.num_rel * 2, self.initsize))
 
         # define graph ode core
@@ -61,6 +108,9 @@ class TANGO(nn.Module):
         if self.score_func.lower() == "tucker":
             self.W_tk, self.input_dropout, self.hidden_dropout1, self.hidden_dropout2, self.bn0, self.bn1 = self.TuckER()
 
+        self.historyfunc = StateHistory(self.p, self.num_e, self.act)
+        self.historyfunc.to(self.device)
+        
     def get_param(self, shape):
         # a function to initialize embedding
         param = Parameter(torch.empty(shape, requires_grad=True, device=self.device))
@@ -153,36 +203,53 @@ class TANGO(nn.Module):
             out_args.append(arg)
         return out_args
 
-    def forward(self, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list,
-                edge_type_list, edge_id_jump, edge_w_jump, rel_jump):
+    def forward(self, sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list,
+                edge_type_list, edge_id_jump, edge_w_jump, rel_jump, edge_id_his, edge_w_his, rel_his):
         # self.test_flag = 0
 
         # push data onto gpu
         if self.p.jump:
-            [sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump] = \
-                        self.push_data(sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump)
+            if self.p.his:
+                [sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump, edge_id_his, edge_w_his, rel_his] = \
+                        self.push_data(sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump, edge_id_his, edge_w_his, rel_his)
+            else:
+                [sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump] = \
+                        self.push_data(sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump)
         else:
-            [sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list] = \
-                        self.push_data(sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list)
+            [sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list] = \
+                        self.push_data(sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list)
         # for RE decoder
         # if self.score_func.lower() == 're' or self.score_func.lower():
         #     [obj_tar] = self.push_data(obj_tar)
 
-
+        loss = torch.FloatTensor([0.0]).to(self.device)
         emb = torch.cat([self.emb_e, self.emb_r], dim=0)
-
+        demb = torch.zeros_like(emb)
+        state = (emb, demb)
+        
+        if self.his:
+            self.historyfunc.set_history(edge_id_his, edge_w_his, rel_his=rel_his)
+            if not self.historyfunc.edge_id_his:
+                state = self.historyfunc(state)
+            else:
+                print("No History.")
+                    
         for i in range(len(times)):
             self.odeblock.odefunc.set_graph(edge_index_list[i], edge_type_list[i])
             if i != (len(times) - 1):
                 # ODE
                 if self.p.jump:
                     if self.p.rel_jump:
-                        self.odeblock.odefunc.set_jumpfunc(edge_id_jump[i], edge_w_jump[i], self.jump, jumpw=self.jump_weight,
+                        self.odeblock.odefunc.set_jumpfunc(edge_id_jump[i], edge_w_jump[i], self.jump,
+                                                           jumpw=self.jump_weight,
                                                            skip=False, rel_jump=rel_jump[i])
                     else:
                         self.odeblock.odefunc.set_jumpfunc(edge_id_jump[i], edge_w_jump[i], self.jump, self.jump_weight, False)
 
-                emb = self.odeblock.forward_nobatch(emb, start=times[i], end=times[i+1], cheby_grid=self.p.cheby_grid)
+                state = self.odeblock.forward_nobatch(state, start=times[i], end=times[i+1], cheby_grid=self.p.cheby_grid)
+
+                loss += self.loss_comp(sub_in[i+1], rel_in[i+1], state[0], lab_in[i+1], self.odeblock.odefunc,
+                                              obj=obj_in[i+1])
             else:
                 # ODE
                 if self.p.jump:
@@ -194,9 +261,9 @@ class TANGO(nn.Module):
                         self.odeblock.odefunc.set_jumpfunc(edge_id_jump[i], edge_w_jump[i], self.jump, self.jump_weight,
                                                            False)
                     
-                emb = self.odeblock.forward_nobatch(emb, start=times[i], end=tar_times[0], cheby_grid=self.p.cheby_grid)
+                state = self.odeblock.forward_nobatch(state, start=times[i], end=tar_times[0], cheby_grid=self.p.cheby_grid)
 
-                loss = self.loss_comp(sub_tar[0], rel_tar[0], emb, lab_tar[0], self.odeblock.odefunc,
+                loss += self.loss_comp(sub_tar[0], rel_tar[0], state[0], lab_tar[0], self.odeblock.odefunc,
                                               obj=obj_tar[0])
 
         return loss
@@ -204,14 +271,26 @@ class TANGO(nn.Module):
     def forward_eval(self, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump):
         # push data onto gpu
         if self.p.jump:
-            [times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump] = \
-                self.push_data(times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump)
+            if self.p.his:
+                [sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump, edge_id_his, edge_w_his, rel_his] = \
+                        self.push_data(sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump, edge_id_his, edge_w_his, rel_his)
+            else:
+                [sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump] = \
+                        self.push_data(sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, times, tar_times, edge_index_list, edge_type_list, edge_id_jump, edge_w_jump, rel_jump)
         else:
             [times, tar_times, edge_index_list, edge_type_list, edge_index_list] = \
                 self.push_data(times, tar_times, edge_index_list, edge_type_list, edge_index_list)
 
         emb = torch.cat([self.emb_e, self.emb_r], dim=0)
-
+        demb = torch.zeros_like(emb)
+        state = (emb, demb)
+        if self.his:
+            self.historyfunc.set_history(edge_id_his, edge_w_his, rel_his=rel_his)
+            if not self.historyfunc.edge_id_his:
+                state = self.historyfunc(state)
+            else:
+                print("No History.")
+                
         for i in range(len(times)):
             self.odeblock.odefunc.set_graph(edge_index_list[i], edge_type_list[i])
             if i != (len(times) - 1):
@@ -224,17 +303,17 @@ class TANGO(nn.Module):
                     else:
                         self.odeblock.odefunc.set_jumpfunc(edge_id_jump[i], edge_w_jump[i], self.jump, self.jump_weight,
                                                            False)
-                emb = self.odeblock.forward_nobatch(emb, start=times[i], end=times[i + 1], cheby_grid=self.p.cheby_grid)
+                state = self.odeblock.forward_nobatch(state, start=times[i], end=times[i + 1], cheby_grid=self.p.cheby_grid)
             else:
                 # ODE
                 if self.p.jump:
                     if self.p.rel_jump:
-                        self.odeblock.odefunc.set_jumpfunc(edge_id_jump[i], edge_w_jump[i], self.jump,
+                            self.odeblock.odefunc.set_jumpfunc(edge_id_jump[i], edge_w_jump[i], self.jump,
                                                            jumpw=self.jump_weight,
                                                            skip=False, rel_jump=rel_jump[i])
                     else:
                         self.odeblock.odefunc.set_jumpfunc(edge_id_jump[i], edge_w_jump[i], self.jump, self.jump_weight,
                                                            False)
-                emb = self.odeblock.forward_nobatch(emb, start=times[i], end=tar_times[0], cheby_grid=self.p.cheby_grid)
+                state = self.odeblock.forward_nobatch(state, start=times[i], end=tar_times[0], cheby_grid=self.p.cheby_grid)
 
-        return emb
+        return state[0]
