@@ -52,10 +52,33 @@ class MGCNLayerWrapper(torch.nn.Module):
 		self.skip = skip
 		self.rel_jump = rel_jump
 
-	def forward(self, t, state):
-		emb, change = state 
+	def set_batch(self, times, edge_index_list, edge_type_list, edge_id_jump_list=None, edge_w_jump_list=None, jump=None, jump_weight=None, rel_jump_list=None):
+		self.times = times
+		self.edge_index_list = edge_index_list
+		self.edge_type_list = edge_type_list
+		self.edge_id_jump_list = edge_id_jump_list
+		self.edge_w_jump_list = edge_w_jump_list
+		self.jump = jump
+		self.jump_weight = jump_weight
+		self.rel_jump_list = rel_jump_list
+  
+	def forward(self, t, emb):
+		times = torch.tensor(self.times).float().cuda()
+		idx = torch.nonzero(times<=t).squeeze().max()
+		max_idx = torch.tensor(self.p.input_step-1).int().cuda()
+		idx = torch.min(idx, max_idx)
+		# print(idx)
+		self.set_graph(self.edge_index_list[idx], self.edge_type_list[idx])
+		if self.p.jump:
+			jump_emb = emb.clone()
+			if self.p.rel_jump:
+				self.set_jumpfunc(self.edge_id_jump_list[idx], self.edge_w_jump_list[idx], self.jump, jumpw=self.jump_weight,
+                      					skip=False, rel_jump=self.rel_jump_list[idx])
+			else:
+				self.set_jumpfunc(self.edge_id_jump_list[idx], self.edge_w_jump_list[idx], self.jump, jumpw=self.jump_weight,
+                      				skip=False)
+  
 		self.nfe += 1
-		jump_emb = emb.clone()
 		if self.p.res:
 			emb = emb + self.res * self.conv1(emb, self.edge_index, self.edge_type, self.num_e)
 			emb = self.drop_l1(emb)
@@ -82,7 +105,7 @@ class MGCNLayerWrapper(torch.nn.Module):
 													dN=self.edge_w_jump)
 			else:
 				jump_res = self.jump(jump_emb, self.edge_id_jump, dN=self.edge_w_jump)			 
-			dchange = emb + self.jump_weight * jump_res
-			dchange = self.drop_l2(dchange)		
+			emb = emb + self.jump_weight * jump_res
+			emb = self.drop_l2(emb)		
  
-		return (change, dchange)
+		return emb

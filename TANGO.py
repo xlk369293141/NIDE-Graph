@@ -50,7 +50,7 @@ if __name__ == '__main__':
     parser.add_argument('--gde_core', type=str, default='mgcn', help='core layer function of the TANGO model')
     parser.add_argument('--score_func', type=str, default='tucker', help='score function')
     parser.add_argument('--core_layer', type=int, default=2, help='number of core function layers')
-    parser.add_argument('--num_epoch', type=int, default=100, help='number of maximum epoch')
+    parser.add_argument('--num_epoch', type=int, default=25, help='number of maximum epoch')
     parser.add_argument('--test_step', type=int, default=1, help='number of epochs after which we do evaluation')
     parser.add_argument('--input_step', type=int, default=4, help='number of input steps for ODEblock')
     parser.add_argument('--delta_step', type=int, default=0, help='number of steps between the last input snapshot and the prediction snapshot')
@@ -67,14 +67,16 @@ if __name__ == '__main__':
     parser.add_argument('--scale', type=float, default=0.1, help='scale the length of integration')
     parser.add_argument('--dropout', type=float, default=0.3, help='dropout')
     parser.add_argument('--bias', action='store_false', help='whether to use bias in relation specific transformation')
-    parser.add_argument('--adjoint_flag', action='store_false', help='whether to use adjoint method')
+    parser.add_argument('--adjoint_flag', action='store_true', help='whether to use adjoint method')
+    parser.add_argument('--odefunc_flag', action='store_true', help='whether to use adjoint method')
     parser.add_argument('--opn', type=str, default='mult', help='composition operation to be used in MGCN')
     parser.add_argument('--shuffle', action='store_false', help='shuffle in dataloader')
-    parser.add_argument('--cheby_grid', type=int, default=3, help='number of chebyshev nodes, without chebyshev approximation if cheby_grid=0')
+    # parser.add_argument('--v', type=int, default=3, help='number of chebyshev nodes, without chebyshev approximation if cheby_grid=0')
     parser.add_argument('--resume', action='store_true', help='retore a model')
-    parser.add_argument('--name', type=str, default='TANGO', help='name of the run')
-    parser.add_argument('--his', action='store_false', help='whether to use history embedding')
-    parser.add_argument('--jump', action='store_false', help='whether to use graph transition layer')
+    parser.add_argument('--name', type=str, default='NIDE-Graph', help='name of the run')
+    parser.add_argument('--his', action='store_true', help='whether to use history embedding')
+    parser.add_argument('--his_reg', type=float, default=0.01, help='temporal regularization weight for static and history embedding')
+    parser.add_argument('--jump', action='store_true', help='whether to use graph transition layer')
     parser.add_argument('--jump_init', type=float, default=0.01, help='weight of transition term')
     parser.add_argument('--activation', type=str, default='relu', help='activation function')
     parser.add_argument('--res', action='store_false', help='include residual MGCN layer')
@@ -259,7 +261,7 @@ if __name__ == '__main__':
 
                 running_loss += loss.item()
                 batch_num += 1
-
+            print(model.his_count)
             running_loss /= batch_num # average loss
             t2 = time.time()
 

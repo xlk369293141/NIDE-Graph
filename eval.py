@@ -50,7 +50,7 @@ def predict(loader, model, params, num_e, test_adjmtx, logger):
                                indep_lab[0][l:r, :], device=p.device)
 
                 # compute scores for corresponding triples
-                score = model.score_comp(sub_tar_, rel_tar_, emb, model.odeblock.odefunc)
+                score = model.score_comp(sub_tar_, rel_tar_, emb)
                 b_range = torch.arange(score.shape[0], device=p.device)
 
                 # raw ranking

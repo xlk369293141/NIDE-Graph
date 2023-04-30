@@ -316,7 +316,7 @@ class TANGOtestDataset(torch.utils.data.Dataset):
                     edge_id_jump.append(a._indices()[:, jumped])
                     edge_w_jump.append(a._values()[jumped].unsqueeze(-1))
 
-        edge_id_his, edge_w_his, rel_his = [], [], []
+        edge_id_his, edge_w_his, rel_his = 0, 0, 0
         if self.p.his:
             adj_mtx_his = torch.zeros_like(self.adjlist[0])
             for i_idx in range(0, idx):

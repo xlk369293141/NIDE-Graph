@@ -22,12 +22,14 @@ def get_total_number(inPath, fileName):
             return int(line_split[0]), int(line_split[1])
         
 def load_adjmtx(dataset):
+    dataset = './dataset/' + dataset
     loadadjlist = open('{}/adjlist_tKG.pkl'.format(dataset), 'rb')
     adjlist = pickle.load(loadadjlist)
     loadadjlist.close()
     return adjlist
         
 def setup_tKG(dataset, logger, embsize, scale, val_exist, input_step):
+    dataset = './dataset/' + dataset
     # load data after preprocess
     # loaddata = open('{}/data_tKG.pkl'.format(dataset), 'rb')
     # data = pickle.load(loaddata)
@@ -36,7 +38,7 @@ def setup_tKG(dataset, logger, embsize, scale, val_exist, input_step):
     # loadsr2o = open('{}/sr2o_all_tKG.pkl'.format(dataset), 'rb')
     # sr2o = pickle.load(loadsr2o)
     # loadsr2o.close()
-
+    
     loadso2r = open('{}/so2r_all_tKG.pkl'.format(dataset), 'rb')
     so2r = pickle.load(loadso2r)
     loadso2r.close()
@@ -186,7 +188,8 @@ def setup_tKG(dataset, logger, embsize, scale, val_exist, input_step):
         #return num_e, num_rel, train_node_feature, test_node_feature, train_timestamps, test_timestamps, train_adj, test_adj, triples
 
 # def setup_tKG2(dataset, logger, embsize, scale, val_exist, input_step):
-#     # # load data after preprocess
+#     dataset = './dataset/' + dataset
+# # # load data after preprocess
 #     # loaddata = open('{}/data_tKG_j.pkl'.format(dataset), 'rb')
 #     # data = pickle.load(loaddata)
 #     # loaddata.close()
