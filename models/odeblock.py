@@ -38,7 +38,6 @@ class ODEBlock(nn.Module):
             start.append(end)
         self.integration_time = torch.tensor(start).float()
         self.integration_time = self.integration_time.type_as(x[0])
-        print(self.integration_time)
         if self.adjoint_flag:
             out = torchdiffeq.odeint_adjoint(self.odefunc, x, self.integration_time,
                                              rtol=self.rtol, atol=self.atol, method=self.method, cheby_grid=cheby_grid)

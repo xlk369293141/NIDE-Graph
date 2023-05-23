@@ -13,7 +13,8 @@ logger.setLevel(logging.WARNING)#(logging.DEBUG)
 
 #Torch libraries 
 import torch
-from torchdiffeq import odeint, odeint_adjoint
+
+from torchdiffeq import odeint
 from torchcubicspline import natural_cubic_spline_coeffs, NaturalCubicSpline
 from source.integrators import MonteCarlo
 mc = MonteCarlo()
@@ -77,9 +78,8 @@ class IDESolver:
         global_error_function: Callable = global_error,
     ):
         
-        self.odeint = odeint_adjoint if adjoint_option else odeint
         self.y_0 = y_0
-        
+                    
         self.x = x
         
         self.integration_dim = integration_dim
@@ -102,14 +102,13 @@ class IDESolver:
         if ode_option is True:
             f = lambda y: self._zeros()
             
-        # self.c = lambda x, y: c(x, y)
-        self.c = c
+        self.c = lambda x, y: c(x, y)
         self.d = lambda x, y: d(x,y)
         if kernel_nn is True:
             self.k = k
         else:
             self.k = lambda x, s: k(x, s)
-        self.f = lambda y: f(y)
+        self.f = lambda s,y: f(s,y)
         
         self.kernel_nn = kernel_nn
         self.ode_option = ode_option
@@ -290,25 +289,42 @@ class IDESolver:
         interpolated_y = self._interpolate_y(y)
         
         #mc = MonteCarlo()
+      
+        # def integral(x):
+        #     x = x.to(device)
+            
+        #     def integrand(s):
+                
+        #         if self.adjoint_option is True:
+        #             s = s.to(device)
+        #         else:
+        #             s=s.to(device).requires_grad_(True)
+        #         if self.kernel_nn is False:
+        #             out = torch.bmm(self.k(x, s), self.f(s[:],interpolated_y(s[:]))\
+        #                             .reshape(self.n_batch,self.number_MC_samplings,self.y_0.shape[-1],1))
+        #         else:
+        #             y_in = self.f(s[:],interpolated_y(s[:]))\
+        #                     .reshape(self.n_batch,self.number_MC_samplings,self.y_0.shape[-1])
+        #             out = self.k.forward(y_in,x.repeat(self.number_MC_samplings).reshape(self.number_MC_samplings,1),s)
+                    
+        #         return out
+                
+        #     ####
+        #     if self.lower_bound(x) < self.upper_bound(x):
+        #         interval = [[self.lower_bound(x),self.upper_bound(x)]]
+        #     else: 
+        #         interval = [[self.upper_bound(x),self.lower_bound(x)]]
+        #     ####
 
+        #     return mc.integrate(
+        #                    fn= lambda s: torch.sign(self.upper_bound(x)-self.lower_bound(x))*integrand(s),
+        #                    dim= 1,
+        #                    N=self.number_MC_samplings,
+        #                    integration_domain = interval, 
+        #                    out_dim = self.integration_dim,
+        #                    )
         def integral(x):
             x = x.to(device)
-            
-            def integrand(s):
-                
-                if self.adjoint_option is True:
-                    s = s.to(device)
-                else:
-                    s=s.to(device).requires_grad_(True)
-                if self.kernel_nn is False:
-                    out = torch.bmm(self.k(x, s), self.f(interpolated_y(s[:]))\
-                                    .reshape(self.n_batch,self.number_MC_samplings,self.y_0.shape[-1],1))
-                else:
-                    y_in = self.f(interpolated_y(s[:]))\
-                            .reshape(self.n_batch,self.number_MC_samplings,self.y_0.shape[-1])
-                    out = self.k.forward(y_in,x.repeat(self.number_MC_samplings).reshape(self.number_MC_samplings,1),s)
-                    
-                return out
                 
             ####
             if self.lower_bound(x) < self.upper_bound(x):
@@ -317,15 +333,32 @@ class IDESolver:
                 interval = [[self.upper_bound(x),self.lower_bound(x)]]
             ####
             
+            def integrand(s):
+                
+                if self.adjoint_option is True:
+                    s = s.to(device)
+                else:
+                    s=s.to(device).requires_grad_(True)
+                if self.kernel_nn is False:
+                    out = torch.bmm(self.k(x, s), self.f(s[:],interpolated_y(s[:]))\
+                                    .reshape(self.n_batch,N,self.y_0.shape[-1],1))
+                else:
+                    y_in = self.f(s[:],interpolated_y(s[:]))\
+                        .reshape(self.n_batch,N,self.y_0.shape[-1])
+                    # print(y_in.size())
+                    out = self.k.forward(y_in,x.repeat(N).reshape(N,1),s)
+                return out
             
-            return mc.integrate(
-                           fn= lambda s: torch.sign(self.upper_bound(x)-self.lower_bound(x))*integrand(s),
+            N = 3
+            I = torch.zeros(1).to(device)
+            for num in range(self.number_MC_samplings//N):
+                tmp = mc.integrate(fn= lambda s: torch.sign(self.upper_bound(x)-self.lower_bound(x))*integrand(s),
                            dim= 1,
-                           N=self.number_MC_samplings,
+                           N=N,
                            integration_domain = interval, 
-                           out_dim = self.integration_dim,
-                           )
-        
+                           out_dim = self.integration_dim,)
+                I = num / (num + 1) * I + tmp / (num + 1)
+            return I
         
         
 
@@ -338,7 +371,6 @@ class IDESolver:
                 y = y.to(device)
             else:
                 y=y.to(device).requires_grad_(True)
-            
             return self.c(x, interpolated_y(x).to(device)).to(device) + (self.d(x,interpolated_y(x).to(device)).to(device)*integral(x).to(device)).to(device)
             
         return self._solve_ode(rhs)
@@ -388,8 +420,7 @@ class IDESolver:
             t_span= torch.linspace(self.x[0],self.x[-1],self.x.size(0)).to(device).requires_grad_(True)
         
         
-        sol = self.odeint(fun,y0,t_span,rtol=self.ode_rtol, atol=self.ode_atol, method = 'rk4')
-        #,options=dict(step_size=1e-5))
+        sol = odeint(fun,y0,t_span,rtol=self.ode_rtol, atol=self.ode_atol, method = 'rk4')#,options=dict(step_size=1e-5))
         sol = sol.permute(1,0,2)
         
         return sol
@@ -451,7 +482,7 @@ class IDESolver_monoidal:
             self.k = k
         else:
             self.k = lambda x, s: k(x, s)
-        self.f = lambda y: f(y)
+        self.f = lambda s,y: f(s,y)
         
         self.kernel_nn = kernel_nn
         self.ode_option = ode_option
@@ -643,9 +674,9 @@ class IDESolver_monoidal:
                 else:
                     s=s.to(device).detach().requires_grad_(True)
                 if self.kernel_nn is False:
-                    out = torch.bmm(self.k(x, s), self.f(interpolated_y(s[:])).reshape(number_MC_samplings,self.y_0.size(0),1))
+                    out = torch.bmm(self.k(x, s), self.f(s[:],interpolated_y(s[:])).reshape(number_MC_samplings,self.y_0.size(0),1))
                 else:
-                    y_in = self.f(interpolated_y(s[:])).reshape(number_MC_samplings,self.y_0.size(0))
+                    y_in = self.f(s[:],interpolated_y(s[:])).reshape(number_MC_samplings,self.y_0.size(0))
                     out = self.k.forward(y_in,x.repeat(number_MC_samplings).reshape(number_MC_samplings,1),s)
                     out = out.unsqueeze(2)
                 return out
@@ -727,7 +758,7 @@ class IDESolver_monoidal:
             t_span= torch.linspace(self.x[0],self.x[-1],self.x.size(0)).to(device).detach().requires_grad_(True)
         
         
-        sol = self.odeint(fun,y0,t_span,rtol=self.ode_rtol, atol=self.ode_atol, method = 'rk4')#,options=dict(step_size=1e-5))
+        sol = odeint(fun,y0,t_span,rtol=self.ode_rtol, atol=self.ode_atol, method = 'rk4')#,options=dict(step_size=1e-5))
 
         return sol
     

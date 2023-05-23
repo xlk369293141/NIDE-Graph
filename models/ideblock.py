@@ -3,13 +3,10 @@ import torch.nn as nn
 # import torchdiffeq
 from source.solver import IDESolver, IDESolver_monoidal
 
-num_MC = 5  
+num_MC = 30
 class IDEBlock(nn.Module):
     def __init__(self, odefunc:nn.Module, kernel:nn.Module, F_func:nn.Module, method:str='dopri5', 
                  rtol:float=1e-3, atol:float=1e-4, adjoint:bool=True, ode_option=False):
-        """ Standard ODEBlock class. Can handle all types of ODE functions
-            :method:str = {'euler', 'rk4', 'dopri5', 'adams'}
-        """
         super(IDEBlock, self).__init__()
         self.odefunc = odefunc
         self.method = method
@@ -31,7 +28,7 @@ class IDEBlock(nn.Module):
 
         # out = self.odeint(self.odefunc, x, times,
         #                              rtol=self.rtol, atol=self.atol, method=self.method)
-        alpha = lambda x:x-times[-1]+times[0].to(self.device)
+        alpha = lambda x:times[0].to(self.device)
         beta = lambda x:x.to(self.device)           
         out = IDESolver(times,
                                 y_0,
@@ -56,7 +53,7 @@ class IDEBlock(nn.Module):
 
         # out = self.odeint(self.odefunc, x, times,
         #                              rtol=self.rtol, atol=self.atol, method=self.method)
-        alpha = lambda x:x-times[-1]+times[0].to(self.device)
+        alpha = lambda x:times[0].to(self.device)
         beta = lambda x:x.to(self.device) 
         out = IDESolver(times,
                                 y_0,
@@ -80,7 +77,7 @@ class IDEBlock(nn.Module):
         times = times.type_as(y_0)
         # out = self.odeint(self.odefunc, x, times,
         #                          rtol=self.rtol, atol=self.atol, method=self.method)
-        alpha = lambda x:x-times[-1]+times[0].to(self.device)
+        alpha = lambda x:times[0].to(self.device)
         beta = lambda x:x.to(self.device) 
         out = IDESolver(times,
                                 y_0,

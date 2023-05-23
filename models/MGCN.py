@@ -19,93 +19,86 @@ class MGCNLayerWrapper(torch.nn.Module):
 		self.drop_l2 = torch.nn.Dropout(drop2)
 		self.sub = sub
 		self.rel = rel
-		# transition layer
 		self.jump = None
 		self.jump_weight = None
-		# self.change = None
-		# self.change_weight = None
-  
+		self.max_idx = torch.tensor(self.p.input_step-1).int().cuda()
 		# residual layer
 		if self.p.res:
-			# self.res_weight = nn.Parameter(torch.Tensor(self.p.initsize, self.p.initsize))
-			# nn.init.xavier_uniform_(self.res_weight,
-            #                         gain=nn.init.calculate_gain('relu'))
-			# self.res_bias = nn.Parameter(torch.Tensor(self.p.initsize))
-			# nn.init.zeros_(self.res_bias)
-			self.res = torch.nn.Parameter(torch.FloatTensor([0.1]))
-   
+			self.res1 = torch.nn.Parameter(torch.FloatTensor([0.1]))
+			self.res2 = torch.nn.Parameter(torch.FloatTensor([0.1]))
+			if self.p.jump:
+				self.jump_res = torch.nn.Parameter(torch.FloatTensor([0.1]))
+				self.jump_drop = torch.nn.Dropout(drop2)
+    
 		# define MGCN Layer
 		self.conv1 = MGCNConvLayer(self.p.initsize, self.p.hidsize, act=self.act, params=self.p)
 		self.conv2 = MGCNConvLayer(self.p.hidsize, self.p.embsize, act=self.act, params=self.p) if self.p.core_layer == 2 else None
 
-		self.register_parameter('bias', Parameter(torch.zeros(num_e)))
+		# self.register_parameter('bias', Parameter(torch.zeros(num_e)))
 
 	def set_graph(self, edge_index, edge_type):
 		self.edge_index = edge_index
 		self.edge_type = edge_type
 
-	def set_jumpfunc(self, edge_id_jump, edge_w_jump, jumpfunc, jumpw=None, skip=False, rel_jump=None):
+	def set_jumpgraph(self, edge_id_jump, edge_w_jump, skip=False, rel_jump=None):
 		self.edge_id_jump = edge_id_jump
 		self.edge_w_jump = edge_w_jump
-		self.jump = jumpfunc
-		self.jump_weight = jumpw
+		# self.jump = jumpfunc
+		# self.jump_weight = jumpw
 		self.skip = skip
 		self.rel_jump = rel_jump
 
-	def set_batch(self, times, edge_index_list, edge_type_list, edge_id_jump_list=None, edge_w_jump_list=None, jump=None, jump_weight=None, rel_jump_list=None):
+	def set_batch(self, times, edge_index_list, edge_type_list, edge_id_jump_list=None, edge_w_jump_list=None, rel_jump_list=None):
 		self.times = times
 		self.edge_index_list = edge_index_list
 		self.edge_type_list = edge_type_list
 		self.edge_id_jump_list = edge_id_jump_list
 		self.edge_w_jump_list = edge_w_jump_list
-		self.jump = jump
-		self.jump_weight = jump_weight
 		self.rel_jump_list = rel_jump_list
   
 	def forward(self, t, emb):
 		times = torch.tensor(self.times).float().cuda()
-		idx = torch.nonzero(times<=t).squeeze().max()
-		max_idx = torch.tensor(self.p.input_step-1).int().cuda()
-		idx = torch.min(idx, max_idx)
-		# print(idx)
+		idx = (times<=t).sum(dim=-1)-1
+		assert(idx>=0)
+		idx = torch.min(idx, self.max_idx)
 		self.set_graph(self.edge_index_list[idx], self.edge_type_list[idx])
-		if self.p.jump:
-			jump_emb = emb.clone()
-			if self.p.rel_jump:
-				self.set_jumpfunc(self.edge_id_jump_list[idx], self.edge_w_jump_list[idx], self.jump, jumpw=self.jump_weight,
-                      					skip=False, rel_jump=self.rel_jump_list[idx])
-			else:
-				self.set_jumpfunc(self.edge_id_jump_list[idx], self.edge_w_jump_list[idx], self.jump, jumpw=self.jump_weight,
-                      				skip=False)
   
 		self.nfe += 1
 		if self.p.res:
-			emb = emb + self.res * self.conv1(emb, self.edge_index, self.edge_type, self.num_e)
+			emb = emb + self.res1 * self.conv1(emb, self.edge_index, self.edge_type, self.num_e)
 			emb = self.drop_l1(emb)
-			emb = (emb + self.res * self.conv2(emb, self.edge_index, self.edge_type, self.num_e)) if self.p.core_layer == 2 else emb
+			emb = (emb + self.res2 * self.conv2(emb, self.edge_index, self.edge_type, self.num_e)) if self.p.core_layer == 2 else emb
 			emb = self.drop_l2(emb) if self.p.core_layer == 2 else emb
-			# res_weight = torch.sigmoid(torch.mm(emb, self.res_weight) + self.res_bias)
-			# emb_ = self.conv1(emb, self.edge_index, self.edge_type, self.num_e)
-			# emb_ = self.drop_l1(emb_)
-			# emb = (1 - res_weight) * emb + res_weight * emb_
-			# if self.p.core_layer == 2:
-			# 	res_weight = torch.sigmoid(torch.mm(emb, self.res_weight) + self.res_bias)
-			# 	emb_ = self.conv2(emb, self.edge_index, self.edge_type, self.num_e)
-			# 	emb_ = self.drop_l2(emb_)
-			# 	emb = (1 - res_weight) * emb + res_weight * emb_
+
 		else:
 			emb	= self.conv1(emb, self.edge_index, self.edge_type, self.num_e)
 			emb	= self.drop_l1(emb)
 			emb	= self.conv2(emb, self.edge_index, self.edge_type, self.num_e) 	if self.p.core_layer == 2 else emb
 			emb	= self.drop_l2(emb) 							if self.p.core_layer == 2 else emb
-
-		if self.p.jump:
-			if self.p.rel_jump:
-				jump_res = self.jump.forward(jump_emb, self.edge_id_jump, self.rel_jump, self.num_e,
-													dN=self.edge_w_jump)
-			else:
-				jump_res = self.jump(jump_emb, self.edge_id_jump, dN=self.edge_w_jump)			 
-			emb = emb + self.jump_weight * jump_res
-			emb = self.drop_l2(emb)		
  
 		return emb
+
+	def forward_jump(self, t, emb):
+		times = torch.tensor(self.times).float().cuda()
+		idx_batch = (times<=t).sum(dim=-1)-1
+		idx_batch = torch.min(idx_batch, self.max_idx)
+		out = []
+		emb=emb.squeeze()
+		for batch_id, idx in enumerate(idx_batch):
+			if self.p.rel_jump:
+				self.set_jumpgraph(self.edge_id_jump_list[idx], self.edge_w_jump_list[idx],
+										skip=False, rel_jump=self.rel_jump_list[idx])
+			else:
+				self.set_jumpgraph(self.edge_id_jump_list[idx], self.edge_w_jump_list[idx],
+									skip=False)
+			
+			if self.p.rel_jump:
+				jump_res = self.jump.forward(emb[:,batch_id,:], self.edge_id_jump, self.rel_jump, self.num_e,
+													dN=self.edge_w_jump)
+			else:
+				jump_res = self.jump(emb[:,batch_id,:], self.edge_id_jump, dN=self.edge_w_jump)	
+			emb_ = emb[:,batch_id,:] + self.jump_res * jump_res
+			emb_ = self.jump_drop(emb_)
+			out.append(emb_.unsqueeze(1))
+		out = torch.cat(out,dim=1)
+		return out
