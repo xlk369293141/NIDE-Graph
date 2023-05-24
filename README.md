@@ -19,6 +19,7 @@ python TANGO.py
 ```
 
 The sturcture of our code:
+```txt
     /source/solver.py 
         Line 352-361 shows how we serialize the MC integration.
         Line 111 shows we modeified the input of F_Func to fit MGCN.
@@ -29,3 +30,4 @@ The sturcture of our code:
         The 2 layer Multi-relational Graph Convetional Network implemented with message passing mechanism. It is a full-batch method to update the entire embedding at once.
     /models/models.py 
         Overall network flow, calculating the dynamics of the entire time interval.
+```
