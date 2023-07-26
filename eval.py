@@ -32,12 +32,12 @@ def predict(loader, model, params, num_e, test_adjmtx, logger):
 
         for step, (
         sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, tar_ts, in_ts, edge_idlist, edge_typelist,
-        indep_lab, adj_mtx, edge_jump_w, edge_jump_id, rel_jump, edge_id_his, edge_w_his, rel_his) in enumerate(iter):
+        indep_lab, adj_mtx, edge_jump_w, edge_jump_id, rel_jump) in enumerate(iter):
             if len(sub_tar) == 0:
                 continue
 
             # forward
-            emb = model.forward_eval(in_ts, tar_ts, edge_idlist, edge_typelist, edge_jump_id, edge_jump_w, rel_jump, edge_id_his, edge_w_his, rel_his)
+            emb = model.forward_eval(in_ts, tar_ts, edge_idlist, edge_typelist, edge_jump_id, edge_jump_w, rel_jump)
 
             rank_count = 0
             while rank_count < sub_tar[0].shape[0]:
@@ -50,7 +50,7 @@ def predict(loader, model, params, num_e, test_adjmtx, logger):
                                indep_lab[0][l:r, :], device=p.device)
 
                 # compute scores for corresponding triples
-                score = model.score_comp(sub_tar_, rel_tar_, emb, model.odeblock.odefunc)
+                score = model.score_comp(sub_tar_, rel_tar_, emb, tar_ts[0])
                 b_range = torch.arange(score.shape[0], device=p.device)
 
                 # raw ranking
@@ -67,7 +67,7 @@ def predict(loader, model, params, num_e, test_adjmtx, logger):
 
                 # time aware filtering
                 target_score = score[b_range, obj_tar_]
-                score = torch.where(lab_tar_.byte(), -torch.ones_like(score) * 10000000, score)
+                score = torch.where(lab_tar_.bool(), -torch.ones_like(score) * 10000000, score)
                 score[b_range, obj_tar_] = target_score
 
                 # time aware filtered ranking
@@ -81,21 +81,6 @@ def predict(loader, model, params, num_e, test_adjmtx, logger):
                     results['hits@{}'.format(k + 1)] = torch.numel(ranks[ranks <= (k + 1)]) + results.get(
                         'hits@{}'.format(k + 1), 0.0)
 
-                # time unaware filtering
-                score = torch.where(indep_lab_.byte(), -torch.ones_like(score) * 10000000, score)
-                score[b_range, obj_tar_] = target_score
-
-                # time unaware filtered ranking
-                ranks = 1 + torch.argsort(torch.argsort(score, dim=1, descending=True), dim=1, descending=False)[
-                    b_range, obj_tar_]
-                ranks = ranks.float()
-                results['count_ind'] = torch.numel(ranks) + results.get('count_ind', 0.0)
-                results['mar_ind'] = torch.sum(ranks).item() + results.get('mar_ind', 0.0)
-                results['mrr_ind'] = torch.sum(1.0 / ranks).item() + results.get('mrr_ind', 0.0)
-                for k in range(10):
-                    results['hits@{}_ind'.format(k + 1)] = torch.numel(ranks[ranks <= (k + 1)]) + results.get(
-                        'hits@{}_ind'.format(k + 1), 0.0)
-
                 rank_count += rank_group_num
             del sub_tar_, rel_tar_, obj_tar_, lab_tar_, indep_lab_
 
@@ -103,12 +88,9 @@ def predict(loader, model, params, num_e, test_adjmtx, logger):
         results['mrr'] = round(results['mrr'] / results['count'], 5)
         results['mar_raw'] = round(results['mar_raw'] / results['count_raw'], 5)
         results['mrr_raw'] = round(results['mrr_raw'] / results['count_raw'], 5)
-        results['mar_ind'] = round(results['mar_ind'] / results['count_ind'], 5)
-        results['mrr_ind'] = round(results['mrr_ind'] / results['count_ind'], 5)
         for k in range(10):
             results['hits@{}'.format(k + 1)] = round(results['hits@{}'.format(k + 1)] / results['count'], 5)
             results['hits@{}_raw'.format(k + 1)] = round(results['hits@{}_raw'.format(k + 1)] / results['count_raw'], 5)
-            results['hits@{}_ind'.format(k + 1)] = round(results['hits@{}_ind'.format(k + 1)] / results['count_ind'], 5)
 
         t2 = time.time()
         print("evaluation time: ", t2 - t1)

@@ -47,42 +47,58 @@ def adjust_learning_rate(optimizer, lr, gamma):
 if __name__ == '__main__':
     modelpth = './checkpoints/'
     parser = argparse.ArgumentParser(description='TANGO Training Parameters')
-    parser.add_argument('--gde_core', type=str, default='mgcn', help='core layer function of the TANGO model')
+    parser.add_argument('--core', type=str, default='mgcn', help='core layer function of the TANGO model')
     parser.add_argument('--score_func', type=str, default='tucker', help='score function')
     parser.add_argument('--core_layer', type=int, default=2, help='number of core function layers')
-    parser.add_argument('--num_epoch', type=int, default=100, help='number of maximum epoch')
-    parser.add_argument('--test_step', type=int, default=1, help='number of epochs after which we do evaluation')
+    parser.add_argument('--num_epoch', type=int, default=30, help='number of maximum epoch')
+    parser.add_argument('--test_step', type=int, default=2, help='number of epochs after which we do evaluation')
     parser.add_argument('--input_step', type=int, default=4, help='number of input steps for ODEblock')
     parser.add_argument('--delta_step', type=int, default=0, help='number of steps between the last input snapshot and the prediction snapshot')
     parser.add_argument('--target_step', type=int, default=1, help='number of prediction snapshots')
     parser.add_argument('--initsize', type=int, default=200, help='size of initial representation dimension')
     parser.add_argument('--embsize', type=int, default=200, help='size of output embeddings')
-    parser.add_argument('--hidsize', type=int, default= 200, help='size of representation dimension in the core function')
+    parser.add_argument('--hidsize', type=int, default=200, help='size of representation dimension in the core function')
     parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
-    parser.add_argument('--solver', type=str, default='rk4', help='ODE solver')
-    parser.add_argument('--atol', type=float, default='1e-4', help='lower bound of the tolerance')
-    parser.add_argument('--rtol', type=float, default='1e-3', help='higher bound of the tolerance')
     parser.add_argument('--device', type=str, default='cuda:0', help='device name')
     parser.add_argument('--dataset', type=str, default='ICEWS05-15', help='dataset name')
     parser.add_argument('--scale', type=float, default=0.1, help='scale the length of integration')
     parser.add_argument('--dropout', type=float, default=0.3, help='dropout')
     parser.add_argument('--bias', action='store_false', help='whether to use bias in relation specific transformation')
-    parser.add_argument('--adjoint_flag', action='store_false', help='whether to use adjoint method')
     parser.add_argument('--opn', type=str, default='mult', help='composition operation to be used in MGCN')
     parser.add_argument('--shuffle', action='store_false', help='shuffle in dataloader')
-    parser.add_argument('--cheby_grid', type=int, default=3, help='number of chebyshev nodes, without chebyshev approximation if cheby_grid=0')
     parser.add_argument('--resume', action='store_true', help='retore a model')
     parser.add_argument('--name', type=str, default='TANGO', help='name of the run')
-    parser.add_argument('--his', action='store_false', help='whether to use history embedding')
-    parser.add_argument('--jump', action='store_false', help='whether to use graph transition layer')
+    parser.add_argument('--jump', action='store_true', help='whether to use graph transition layer')
     parser.add_argument('--jump_init', type=float, default=0.01, help='weight of transition term')
     parser.add_argument('--activation', type=str, default='relu', help='activation function')
-    parser.add_argument('--res', action='store_false', help='include residual MGCN layer')
-    parser.add_argument('--rel_jump', action='store_false', help='include transition tensor')
+    parser.add_argument('--res', action='store_true', help='include residual MGCN layer')
+    parser.add_argument('--rel_jump', action='store_true', help='include transition tensor')
     parser.add_argument('--induct_test', action='store_true', help='inductive link prediction')
     parser.add_argument('--test', action='store_true', help='store to start the test, otherwise start training')
-    
 
+    parser.add_argument('--node_feats', type=int, default=200, help='size of embedding representation dimension')
+    parser.add_argument('--edge_feats', type=int, default=1, help='size of edge feature dimension, just adj in this work')
+    parser.add_argument('--pos_dim', type=int, default=1, help='size of position embedding dimension, represent time in this work')
+    parser.add_argument('--n_hidden', type=int, default=200, help='size of output embeddings')
+    # SimpleTransformer
+    parser.add_argument('--num_encoder_layers', type=int, default=3, help='number of core function layers')
+    parser.add_argument('--n_head', type=int, default=3, help='number of core function layers')     # n_hidden + 1 % n_head = 0
+    parser.add_argument('--dim_feedforward', type=int, default=201, help='number of core function layers')
+    parser.add_argument('--attention_type', type=str, default='integral', help='core layer function of the TANGO model')
+    parser.add_argument('--symmetric_init', action='store_true', help='shuffle in dataloader')
+    parser.add_argument('--xavier_init', type=float, default=0.001, help='learning rate')
+    parser.add_argument('--diagonal_weight', type=float, default=0.01, help='learning rate')
+    # SpectralRegressor
+    parser.add_argument('--decoder_type', type=str, default='ifft', help='core layer function of the TANGO model')
+    parser.add_argument('--n_targets', type=int, default=201, help='size of representation dimension in the core function')
+    parser.add_argument('--freq_dim', type=int, default=0, help='size of representation dimension in the core function')
+    parser.add_argument('--num_regressor_layers', type=int, default=2, help='size of representation dimension in the core function')
+    parser.add_argument('--fourier_modes', type=int, default=3, help='size of representation dimension in the core function')
+
+    # ANIE_Solver
+    parser.add_argument('--max_iterations', type=int, default=3, help='size of representation dimension in the core function')
+    parser.add_argument('--smoothing_factor', type=float, default=0.5, help='higher bound of the tolerance')
+    parser.add_argument('--accumulate_grads', type=bool, default=False, help='higher bound of the tolerance')
     args = parser.parse_args()
     if not args.resume: args.name = args.name + '_' + time.strftime('%Y_%m_%d') + '_' + time.strftime('%H:%M:%S')
 
@@ -240,19 +256,19 @@ if __name__ == '__main__':
             t1 = time.time()
 
             for step, (sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, tar_ts, in_ts, edge_idlist, \
-                edge_typelist, adj_mtx, edge_jump_w, edge_jump_id, rel_jump, edge_id_his, edge_w_his, rel_his) in enumerate(train_loader):
+                edge_typelist, adj_mtx, edge_jump_w, edge_jump_id, rel_jump) in enumerate(train_loader):
+                # print(step)
                 optim.zero_grad()
                 model.train()
-
+                
                 # forward
                 t3 = time.time()
-                loss = model(sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, in_ts, tar_ts, edge_idlist, edge_typelist, edge_jump_id, edge_jump_w, rel_jump, edge_id_his, edge_w_his, rel_his)
+                loss = model(sub_in, rel_in, obj_in, lab_in, sub_tar, rel_tar, obj_tar, lab_tar, in_ts, tar_ts, edge_idlist, edge_typelist, edge_jump_id, edge_jump_w, rel_jump)
                 t4 = time.time()
                 ftime += (t4 - t3)
 
                 # backward
                 loss.backward()
-                # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optim.step()
                 t5 = time.time()
                 btime += (t5 - t4)
@@ -293,13 +309,6 @@ if __name__ == '__main__':
                 print("Epoch {}, MRR {}".format(epoch + 1, results['mrr']))
                 print("Epoch {}, MAR {}".format(epoch + 1, results['mar']))
 
-                print("====TIME UNAWARE FILTER====")
-                print("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_ind']))
-                print("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_ind']))
-                print("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1_ind']))
-                print("Epoch {}, MRR {}".format(epoch + 1, results['mrr_ind']))
-                print("Epoch {}, MAR {}".format(epoch + 1, results['mar_ind']))
-
                 logger.info("===========RAW===========")
                 logger.info("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_raw']))
                 logger.info("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_raw']))
@@ -314,13 +323,6 @@ if __name__ == '__main__':
                 logger.info("Epoch {}, MRR {}".format(epoch + 1, results['mrr']))
                 logger.info("Epoch {}, MAR {}".format(epoch + 1, results['mar']))
 
-                logger.info("====TIME UNAWARE FILTER====")
-                logger.info("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_ind']))
-                logger.info("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_ind']))
-                logger.info("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1_ind']))
-                logger.info("Epoch {}, MRR {}".format(epoch + 1, results['mrr_ind']))
-                logger.info("Epoch {}, MAR {}".format(epoch + 1, results['mar_ind']))
-
                 if results['mrr'] > best_val_mrr:
                     # update best result
                     best_val = results
@@ -331,7 +333,7 @@ if __name__ == '__main__':
                 else:
                     # early stop condition
                     kill_cnt += 1
-                    if kill_cnt > 30:
+                    if kill_cnt > 15:
                         logger.info("Early Stopping!!")
                         break
 
@@ -339,10 +341,11 @@ if __name__ == '__main__':
                 print("Epoch {}, MRR {}".format(epoch + 1, best_val_mrr))
                 logger.info("========BEST MRR=========")
                 logger.info("Epoch {}, MRR {}".format(epoch + 1, best_val_mrr))
-
+        
         print("Start testing...")
         logger.info("Start testing...")
         epoch = 0
+        split = 'test'
         results = predict(test_loader, model, args, num_e, test_adjmtx, logger)
 
         print("===========RAW===========")
@@ -359,12 +362,19 @@ if __name__ == '__main__':
         print("Epoch {}, MRR {}".format(epoch + 1, results['mrr']))
         print("Epoch {}, MAR {}".format(epoch + 1, results['mar']))
 
-        print("====TIME UNAWARE FILTER====")
-        print("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_ind']))
-        print("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_ind']))
-        print("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1_ind']))
-        print("Epoch {}, MRR {}".format(epoch + 1, results['mrr_ind']))
-        print("Epoch {}, MAR {}".format(epoch + 1, results['mar_ind']))
+        logger.info("===========RAW===========")
+        logger.info("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_raw']))
+        logger.info("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_raw']))
+        logger.info("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1_raw']))
+        logger.info("Epoch {}, MRR {}".format(epoch + 1, results['mrr_raw']))
+        logger.info("Epoch {}, MAR {}".format(epoch + 1, results['mar_raw']))
+
+        logger.info("=====TIME AWARE FILTER=====")
+        logger.info("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10']))
+        logger.info("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3']))
+        logger.info("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1']))
+        logger.info("Epoch {}, MRR {}".format(epoch + 1, results['mrr']))
+        logger.info("Epoch {}, MAR {}".format(epoch + 1, results['mar']))
     else:
         if args.induct_test: # inductive link prediction, run if you have a trained model
             print("Start inductive testing...")
@@ -390,13 +400,6 @@ if __name__ == '__main__':
         print("Epoch {}, MRR {}".format(epoch + 1, results['mrr']))
         print("Epoch {}, MAR {}".format(epoch + 1, results['mar']))
 
-        print("====TIME UNAWARE FILTER====")
-        print("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_ind']))
-        print("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_ind']))
-        print("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1_ind']))
-        print("Epoch {}, MRR {}".format(epoch + 1, results['mrr_ind']))
-        print("Epoch {}, MAR {}".format(epoch + 1, results['mar_ind']))
-
         logger.info("===========RAW===========")
         logger.info("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_raw']))
         logger.info("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_raw']))
@@ -410,10 +413,3 @@ if __name__ == '__main__':
         logger.info("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1']))
         logger.info("Epoch {}, MRR {}".format(epoch + 1, results['mrr']))
         logger.info("Epoch {}, MAR {}".format(epoch + 1, results['mar']))
-
-        logger.info("====TIME UNAWARE FILTER====")
-        logger.info("Epoch {}, HITS10 {}".format(epoch + 1, results['hits@10_ind']))
-        logger.info("Epoch {}, HITS3 {}".format(epoch + 1, results['hits@3_ind']))
-        logger.info("Epoch {}, HITS1 {}".format(epoch + 1, results['hits@1_ind']))
-        logger.info("Epoch {}, MRR {}".format(epoch + 1, results['mrr_ind']))
-        logger.info("Epoch {}, MAR {}".format(epoch + 1, results['mar_ind']))
