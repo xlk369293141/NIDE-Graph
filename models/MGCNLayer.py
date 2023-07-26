@@ -18,10 +18,10 @@ class MGCNConvLayer(MessagePassing):
 
 		if self.diag:
 			self.w = get_param((1, out_channels))
-			self.w_rel = get_param((1, out_channels))
+			# self.w_rel = get_param((1, out_channels))
 		else:
 			self.w = get_param((in_channels, out_channels))
-			self.w_rel = get_param((in_channels, out_channels))  # for custom rgcn layer
+			# self.w_rel = get_param((in_channels, out_channels))  # for custom rgcn layer
 
 		self.drop = torch.nn.Dropout(self.p.dropout)
 		self.bn = torch.nn.BatchNorm1d(out_channels)
@@ -104,7 +104,7 @@ class MGCNConvLayer(MessagePassing):
 		return out if edge_norm is None else out * edge_norm.view(-1, 1)
 
 	def rel_transform(self, ent_embed, rel_embed):
-		if   self.p.opn == 'corr': 	trans_embed  = corr(ent_embed, rel_embed)
+		if   self.p.opn == 'corr': 	trans_embed  = ccorr(ent_embed, rel_embed)
 		elif self.p.opn == 'sub': 	trans_embed  = ent_embed - rel_embed
 		elif self.p.opn == 'mult': 	trans_embed  = ent_embed * rel_embed
 		else: raise NotImplementedError

@@ -1,8 +1,8 @@
 import torch
 from torch.nn.parameter import Parameter
-from .MGCNLayer import MGCNConvLayer
+from torch_geometric.nn import RGATConv
 
-class MGCNLayerWrapper(torch.nn.Module):
+class RGATLayerWrapper(torch.nn.Module):
 	def __init__(self, edge_index, edge_type, num_e, num_rel, act, drop1, drop2, sub, rel, params=None):
 		super().__init__()
 		self.nfe = 0
@@ -27,11 +27,10 @@ class MGCNLayerWrapper(torch.nn.Module):
 		if self.p.res:
 			self.res = torch.nn.Parameter(torch.FloatTensor([0.1]))
 
-		# define MGCN Layer
-		self.conv1 = MGCNConvLayer(self.p.initsize, self.p.hidsize, act=self.act, params=self.p)
-		self.conv2 = MGCNConvLayer(self.p.hidsize, self.p.embsize, act=self.act, params=self.p) if self.p.core_layer == 2 else None
-
-		self.register_parameter('bias', Parameter(torch.zeros(num_e)))
+		# define RGAT Layer
+		self.conv1 = RGATConv(self.p.initsize, self.p.hidsize, self.num_rel,heads=self.p.n_head,dropout=self.p.dropout)
+		self.conv2 = RGATConv(self.p.hidsize, self.p.embsize, self.num_rel,heads=self.p.n_head,dropout=self.p.dropout)
+		
 
 	def set_graph(self, edge_index, edge_type):
 		self.edge_index = edge_index
@@ -49,14 +48,14 @@ class MGCNLayerWrapper(torch.nn.Module):
 		self.nfe += 1
 		jump_emb = emb.clone()
 		if self.p.res:
-			emb = emb + self.res * self.conv1(emb, self.edge_index, self.edge_type, self.num_e)
+			emb = emb + self.res * self.conv1(emb, self.edge_index, self.edge_type)
 			emb = self.drop_l1(emb)
-			emb = (emb + self.res * self.conv2(emb, self.edge_index, self.edge_type, self.num_e)) if self.p.core_layer == 2 else emb
+			emb = (emb + self.res * self.conv2(emb, self.edge_index, self.edge_type)) if self.p.core_layer == 2 else emb
 			emb = self.drop_l2(emb) if self.p.core_layer == 2 else emb
 		else:
-			emb	= self.conv1(emb, self.edge_index, self.edge_type, self.num_e)
+			emb	= self.conv1(emb, self.edge_index, self.edge_type)
 			emb	= self.drop_l1(emb)
-			emb	= self.conv2(emb, self.edge_index, self.edge_type, self.num_e) 	if self.p.core_layer == 2 else emb
+			emb	= self.conv2(emb, self.edge_index, self.edge_type) 	if self.p.core_layer == 2 else emb
 			emb	= self.drop_l2(emb) 							if self.p.core_layer == 2 else emb
 
 		if self.p.jump:
